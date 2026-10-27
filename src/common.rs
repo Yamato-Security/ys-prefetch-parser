@@ -235,21 +235,27 @@ pub struct NtfsFile {
     pub seq_number: u16,
 }
 
+/// Decodes the UTF-16LE string stored in the `size` bytes at `offset`, up to the first NUL.
 pub fn utf16_at_offset(file_buffer: &[u8], offset: usize, size: usize) -> ForensicResult<String> {
-    let end_pos = offset + size;
-    if end_pos > file_buffer.len() {
-        return Err(ForensicError::bad_format_str(
-            "The utf16 string position is greater than the file buffer",
-        ));
-    }
-    let txt = &file_buffer[offset..end_pos];
-    let txt_u16: &[u16] = unsafe { std::mem::transmute(txt) };
-    let end = txt_u16
-        .iter()
-        .position(|&v| v == 0)
-        .unwrap_or(txt_u16.len());
-    let txt = String::from_utf16_lossy(&txt_u16[0..end]);
-    Ok(txt)
+    let txt = offset
+        .checked_add(size)
+        .and_then(|end_pos| file_buffer.get(offset..end_pos))
+        .ok_or_else(|| {
+            ForensicError::bad_format_str(
+                "The utf16 string position is greater than the file buffer",
+            )
+        })?;
+    Ok(utf16_until_nul(txt))
+}
+
+/// Decodes UTF-16LE bytes up to the first NUL (or the end of the bytes).
+pub fn utf16_until_nul(bytes: &[u8]) -> String {
+    let units: Vec<u16> = bytes
+        .chunks_exact(2)
+        .map(|c| u16::from_le_bytes([c[0], c[1]]))
+        .take_while(|&v| v != 0)
+        .collect();
+    String::from_utf16_lossy(&units)
 }
 
 pub fn u16_at_pos(buffer: &[u8], pos: usize) -> u16 {
@@ -398,7 +404,10 @@ impl<'a> IntoActivity<'a> for &'a PrefetchFile {
         }
     }
 
-    type IntoIter = PrefetchActivityIterator<'a> where Self: 'a;
+    type IntoIter
+        = PrefetchActivityIterator<'a>
+    where
+        Self: 'a;
 }
 
 impl<'a> IntoActivity<'a> for PrefetchFile {
@@ -409,7 +418,10 @@ impl<'a> IntoActivity<'a> for PrefetchFile {
         }
     }
 
-    type IntoIter = PrefetchActivityIterator<'a> where Self: 'a;
+    type IntoIter
+        = PrefetchActivityIterator<'a>
+    where
+        Self: 'a;
 }
 
 impl<'a> IntoTimeline<'a> for &'a PrefetchFile {
@@ -420,7 +432,10 @@ impl<'a> IntoTimeline<'a> for &'a PrefetchFile {
         }
     }
 
-    type IntoIter = PrefetchTimelineIterator<'a> where Self: 'a;
+    type IntoIter
+        = PrefetchTimelineIterator<'a>
+    where
+        Self: 'a;
 }
 
 impl<'a> IntoTimeline<'a> for PrefetchFile {
@@ -431,5 +446,8 @@ impl<'a> IntoTimeline<'a> for PrefetchFile {
         }
     }
 
-    type IntoIter = PrefetchTimelineIterator<'a> where Self: 'a;
+    type IntoIter
+        = PrefetchTimelineIterator<'a>
+    where
+        Self: 'a;
 }

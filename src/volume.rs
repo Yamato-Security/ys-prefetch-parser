@@ -27,17 +27,16 @@ pub fn volume_info_30(
         let pos = i * 96;
         let volume_device_path_offset = u32_at_pos(volume_data, pos);
         let volume_device_path_characters = u32_at_pos(volume_data, pos + 4);
-        if (volume_device_path_offset + volume_device_path_characters) as usize > volume_data.len()
-        {
-            return Err(ForensicError::bad_format_str(
-                "The device path position is greater than the volume buffer",
-            ));
-        }
         let device_path = utf16_at_offset(
             volume_data,
             volume_device_path_offset as usize,
-            volume_device_path_characters as usize,
-        )?;
+            volume_device_path_characters as usize * 2,
+        )
+        .map_err(|_| {
+            ForensicError::bad_format_str(
+                "The device path position is greater than the volume buffer",
+            )
+        })?;
         let creation_time = u64_at_pos(volume_data, pos + 8);
         let serial_number = u32_at_pos(volume_data, pos + 16);
         let file_references_offset = u32_at_pos(volume_data, pos + 20);
@@ -87,17 +86,16 @@ pub fn volume_info_17(
         let pos = i * 40;
         let volume_device_path_offset = u32_at_pos(volume_data, pos);
         let volume_device_path_characters = u32_at_pos(volume_data, pos + 4);
-        if (volume_device_path_offset + volume_device_path_characters) as usize > volume_data.len()
-        {
-            return Err(ForensicError::bad_format_str(
-                "The device path position is greater than the volume buffer",
-            ));
-        }
         let device_path = utf16_at_offset(
             volume_data,
             volume_device_path_offset as usize,
-            volume_device_path_characters as usize,
-        )?;
+            volume_device_path_characters as usize * 2,
+        )
+        .map_err(|_| {
+            ForensicError::bad_format_str(
+                "The device path position is greater than the volume buffer",
+            )
+        })?;
         let creation_time = u64_at_pos(volume_data, pos + 8);
         let serial_number = u32_at_pos(volume_data, pos + 16);
         let file_references_offset = u32_at_pos(volume_data, pos + 20);
@@ -147,17 +145,16 @@ pub fn volume_info_23(
         let pos = i * 104;
         let volume_device_path_offset = u32_at_pos(volume_data, pos);
         let volume_device_path_characters = u32_at_pos(volume_data, pos + 4);
-        if (volume_device_path_offset + volume_device_path_characters) as usize > volume_data.len()
-        {
-            return Err(ForensicError::bad_format_str(
-                "The device path position is greater than the volume buffer",
-            ));
-        }
         let device_path = utf16_at_offset(
             volume_data,
             volume_device_path_offset as usize,
-            volume_device_path_characters as usize,
-        )?;
+            volume_device_path_characters as usize * 2,
+        )
+        .map_err(|_| {
+            ForensicError::bad_format_str(
+                "The device path position is greater than the volume buffer",
+            )
+        })?;
         let creation_time = u64_at_pos(volume_data, pos + 8);
         let serial_number = u32_at_pos(volume_data, pos + 16);
         let file_references_offset = u32_at_pos(volume_data, pos + 20);
@@ -272,7 +269,7 @@ fn extract_directory_strings_23(
                 "The Directory String size is greater than the buffer size",
             ));
         }
-        let text = utf16_at_offset(directory_strings, pos + 2, characters * 2 + 2)?;
+        let text = utf16_at_offset(directory_strings, pos + 2, characters * 2)?;
         pos += 4 + (characters * 2);
         list.push(text);
     }
