@@ -1,3 +1,53 @@
+# ys-prefetch-parser
+
+Yamato Security's maintained fork of Samuel Garcés Marín's
+[frnsc-prefetch](https://github.com/ForensicRS/frnsc-prefetch) crate, the Windows Prefetch (`.pf`)
+parser used by [Juntei](https://github.com/Yamato-Security/juntei). The complete upstream history and
+the MIT license are retained; everything below this section is upstream's README.
+
+frnsc-prefetch was chosen after comparing the Rust prefetch parsers with libscca (libyal's reference
+implementation) on 700 public samples (the artemis, frnsc-prefetch and prefetch-forensic test data):
+
+| Crate | Format versions | Matches libscca | Damaged files | Notes |
+| --- | --- | --- | --- | --- |
+| frnsc-prefetch 0.13.4 | 17, 23, 26, 30, 31 | 695 of 696 (1 MB size limit) | 163 panics, 27 aborts in 58,000 | Metrics with flags, trace chains, file references, directory strings; `unsafe` transmutes |
+| artemis (module) | 23, 26, 30, 31 | 694 of 696 (no version 17) | none | Part of a large application; no trace chains or file references |
+| prefetch-core 0.1.1 | 30, 31 | 536 of 696 (versions 30 and 31 only) | none | Run count, run times, volumes, file names only |
+| libprefetch 0.1.1 | 17, 23, 26 | parses 160 of 696 (no MAM decompression) | 308 panics, 26 aborts in 58,000 | Last run time only; unmaintained since 2018 |
+
+The fork fixes what the comparison found and adds what the others had (file references, hash):
+
+| Change | Source |
+| --- | --- |
+| No `unsafe`: strings were read by transmuting `&[u8]` to `&[u16]` | fork |
+| Damaged files no longer panic or abort (every offset, count and size is checked; allocations are bounded) | fork |
+| Files up to 64 MiB are read (a 1,000,188-byte Windows 8.1 file was rejected) | fork |
+| Xpress Huffman / LZ77 decompression bounded and fixed; LZ77 and LZNT1 were routed to the wrong decoders | fork |
+| `read_prefetch_bytes(name, &[u8])` parses files held in memory | fork |
+| Prefetch hash, header file size and per-file NTFS file references | fork (fields from libscca / libprefetch / artemis) |
+| The file-name hash check parses hex (it raised a notification for every file) | fork |
+| `executable_path()` matches whole file names and resolves names truncated to 29 characters | fork |
+| No printing to stdout from the library | fork |
+| Tests: libscca parity for 16 samples, damaged files with an allocation limit | fork (samples from artemis, MIT) |
+
+Use it from Cargo by commit:
+
+```toml
+frnsc-prefetch = { git = "https://github.com/Yamato-Security/ys-prefetch-parser", rev = "<commit>" }
+```
+
+```rust
+use frnsc_prefetch::prelude::*;
+let data = std::fs::read("./artifacts/30/C/Windows/Prefetch/CMD.EXE-6D6290C5.pf").unwrap();
+let prefetch = read_prefetch_bytes("CMD.EXE-6D6290C5.pf", &data).unwrap();
+println!("{} ran {} times", prefetch.executable_path(), prefetch.run_count);
+```
+
+The crate keeps the name `frnsc-prefetch` and is not published to crates.io; its versions start at
+0.14.0 and are the fork's own. See [CHANGELOG.md](CHANGELOG.md).
+
+---
+
 # Prefetch Parser
 
 [![crates.io](https://img.shields.io/crates/v/frnsc-prefetch.svg?style=for-the-badge&logo=rust)](https://crates.io/crates/frnsc-prefetch) [![documentation](https://img.shields.io/badge/read%20the-docs-9cf.svg?style=for-the-badge&logo=docs.rs)](https://docs.rs/frnsc-prefetch) [![MIT License](https://img.shields.io/crates/l/frnsc-prefetch?style=for-the-badge)](https://github.com/ForensicRS/frnsc-prefetch/blob/main/LICENSE) [![Rust](https://img.shields.io/github/actions/workflow/status/ForensicRS/frnsc-prefetch/rust.yml?style=for-the-badge)](https://github.com/ForensicRS/frnsc-prefetch/workflows/Rust/badge.svg?branch=main)
