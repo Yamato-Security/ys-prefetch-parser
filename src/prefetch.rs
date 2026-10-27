@@ -10,7 +10,9 @@ use forensic_rs::{
 };
 
 use crate::{
-    common::{u32_at_pos, u64_at_pos, utf16_until_nul, PrefetchFile, PrefetchFileInformation},
+    common::{
+        bytes_at, u32_at_pos, u64_at_pos, utf16_until_nul, PrefetchFile, PrefetchFileInformation,
+    },
     decompress::{decompress, CompressionAlgorithm},
     metrics::*,
     volume::*,
@@ -114,7 +116,7 @@ pub fn read_prefetch_file_compressed(
     }
     let mut buffer = Vec::with_capacity(4096);
     file.read_to_end(&mut buffer)?;
-    let header = &buffer[0..8];
+    let header = bytes_at(&buffer, 0, 8, "compressed prefetch header")?;
     let compressed = &buffer[8..];
     let signature = u32_at_pos(header, 0);
     let decompressed_size = u32_at_pos(header, 4);
@@ -128,6 +130,11 @@ pub fn read_prefetch_file_compressed(
         )));
     }
     if crc_ck > 0 {
+        if compressed.len() < 4 {
+            return Err(ForensicError::bad_format_str(
+                "The CRC of the prefetch is outside of the prefetch data",
+            ));
+        }
         let file_crc = u32_at_pos(compressed, 0);
         let mut hash = crc32fast::Hasher::new();
         hash.update(header);
@@ -184,14 +191,15 @@ pub fn read_prefetch_file_no_compressed(
 }
 
 fn process_prefetch_data(artifact_name: &str, buffer: &[u8]) -> ForensicResult<PrefetchFile> {
-    let version = u32::from_le_bytes(buffer[0..4].try_into().unwrap());
+    bytes_at(buffer, 0, HEADER_SIZE, "prefetch header")?;
+    let version = u32_at_pos(buffer, 0);
     let signature = &buffer[4..8];
     if b"SCCA" != signature {
         return Err(ForensicError::bad_format_str("Invalid prefetch signature"));
     }
     //let file_size = u32::from_le_bytes(buffer[12..16].try_into().unwrap());
     let executable_name = utf16_until_nul(&buffer[16..76]);
-    let raw_hash = u32::from_le_bytes(buffer[76..80].try_into().unwrap());
+    let raw_hash = u32_at_pos(buffer, 76);
     check_prefetch_info_correct(artifact_name, &executable_name, raw_hash);
 
     let mut prefetch_content = PrefetchFile {
@@ -200,31 +208,31 @@ fn process_prefetch_data(artifact_name: &str, buffer: &[u8]) -> ForensicResult<P
         ..Default::default()
     };
     if version == 17 {
-        let info = file_information_17(&buffer[84..])?;
+        let info = file_information_17(file_information(buffer, FILE_INFORMATION_SIZE_V17)?)?;
         prefetch_content.metrics = metrics_array_17(buffer, &info)?;
         prefetch_content.volume = volume_info_17(buffer, &info)?;
         prefetch_content.last_run_times = info.last_run_times;
         prefetch_content.run_count = info.run_count;
     } else if version == 23 {
-        let info = file_information_23(&buffer[84..])?;
+        let info = file_information_23(file_information(buffer, FILE_INFORMATION_SIZE_V23)?)?;
         prefetch_content.metrics = metrics_array_23(buffer, &info)?;
         prefetch_content.volume = volume_info_23(buffer, &info)?;
         prefetch_content.last_run_times = info.last_run_times;
         prefetch_content.run_count = info.run_count;
     } else if version == 26 {
-        let info = file_information_26(&buffer[84..])?;
+        let info = file_information_26(file_information(buffer, FILE_INFORMATION_SIZE_V26)?)?;
         prefetch_content.metrics = metrics_array_26(buffer, &info)?;
         prefetch_content.volume = volume_info_26(buffer, &info)?;
         prefetch_content.last_run_times = info.last_run_times;
         prefetch_content.run_count = info.run_count;
     } else if version == 30 {
-        let info = file_information_30(&buffer[84..])?;
+        let info = file_information_30(file_information(buffer, FILE_INFORMATION_SIZE_V30)?)?;
         prefetch_content.metrics = metrics_array_30(buffer, &info)?;
         prefetch_content.volume = volume_info_30(buffer, &info)?;
         prefetch_content.last_run_times = info.last_run_times;
         prefetch_content.run_count = info.run_count;
     } else if version == 31 {
-        let info = file_information_30(&buffer[84..])?;
+        let info = file_information_30(file_information(buffer, FILE_INFORMATION_SIZE_V30)?)?;
         prefetch_content.metrics = metrics_array_30(buffer, &info)?;
         prefetch_content.volume = volume_info_30(buffer, &info)?;
         prefetch_content.last_run_times = info.last_run_times;
@@ -241,6 +249,19 @@ fn process_prefetch_data(artifact_name: &str, buffer: &[u8]) -> ForensicResult<P
         )));
     };
     Ok(prefetch_content)
+}
+
+/// Size of the file header; the file information follows it.
+const HEADER_SIZE: usize = 84;
+const FILE_INFORMATION_SIZE_V17: usize = 68;
+const FILE_INFORMATION_SIZE_V23: usize = 156;
+const FILE_INFORMATION_SIZE_V26: usize = 220;
+/// Version 30 has a 220-byte variant (the metrics array at offset 304, like version 26) and
+/// a 212-byte one (offset 296).
+const FILE_INFORMATION_SIZE_V30: usize = 212;
+
+fn file_information(buffer: &[u8], size: usize) -> ForensicResult<&[u8]> {
+    bytes_at(buffer, HEADER_SIZE, size, "file information")
 }
 
 fn file_information_17(buffer: &[u8]) -> ForensicResult<PrefetchFileInformation> {
@@ -348,7 +369,7 @@ fn file_information_30v2(buffer: &[u8]) -> ForensicResult<PrefetchFileInformatio
 }
 
 fn file_information_30(buffer: &[u8]) -> ForensicResult<PrefetchFileInformation> {
-    let metrics_offsets = u32::from_le_bytes(buffer[0..4].try_into().unwrap());
+    let metrics_offsets = u32_at_pos(buffer, 0);
     if metrics_offsets == 304 {
         return file_information_30v1(buffer);
     }

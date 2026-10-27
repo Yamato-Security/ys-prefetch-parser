@@ -258,14 +258,55 @@ pub fn utf16_until_nul(bytes: &[u8]) -> String {
     String::from_utf16_lossy(&units)
 }
 
+/// Returns the `len` bytes at `offset`, or an error naming `what` when they are not all
+/// inside `buffer`.
+pub fn bytes_at<'a>(
+    buffer: &'a [u8],
+    offset: usize,
+    len: usize,
+    what: &str,
+) -> ForensicResult<&'a [u8]> {
+    offset
+        .checked_add(len)
+        .and_then(|end| buffer.get(offset..end))
+        .ok_or_else(|| {
+            ForensicError::bad_format_string(format!("The {what} is outside of the prefetch data"))
+        })
+}
+
+/// Returns the `count` entries of `entry_size` bytes at `offset`, or an error naming `what`
+/// when they are not all inside `buffer`.
+pub fn array_at<'a>(
+    buffer: &'a [u8],
+    offset: usize,
+    count: usize,
+    entry_size: usize,
+    what: &str,
+) -> ForensicResult<&'a [u8]> {
+    let len = count.checked_mul(entry_size).ok_or_else(|| {
+        ForensicError::bad_format_string(format!("The {what} is outside of the prefetch data"))
+    })?;
+    bytes_at(buffer, offset, len, what)
+}
+
+fn array_at_pos<const N: usize>(buffer: &[u8], pos: usize) -> [u8; N] {
+    pos.checked_add(N)
+        .and_then(|end| buffer.get(pos..end))
+        .and_then(|bytes| bytes.try_into().ok())
+        .unwrap_or([0; N])
+}
+
+/// Reads a little-endian `u16` at `pos`; 0 when the buffer is too short.
 pub fn u16_at_pos(buffer: &[u8], pos: usize) -> u16 {
-    u16::from_le_bytes(buffer[pos..pos + 2].try_into().unwrap_or_default())
+    u16::from_le_bytes(array_at_pos(buffer, pos))
 }
+/// Reads a little-endian `u32` at `pos`; 0 when the buffer is too short.
 pub fn u32_at_pos(buffer: &[u8], pos: usize) -> u32 {
-    u32::from_le_bytes(buffer[pos..pos + 4].try_into().unwrap_or_default())
+    u32::from_le_bytes(array_at_pos(buffer, pos))
 }
+/// Reads a little-endian `u64` at `pos`; 0 when the buffer is too short.
 pub fn u64_at_pos(buffer: &[u8], pos: usize) -> u64 {
-    u64::from_le_bytes(buffer[pos..pos + 8].try_into().unwrap_or_default())
+    u64::from_le_bytes(array_at_pos(buffer, pos))
 }
 
 impl Metric {
