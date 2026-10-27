@@ -1,15 +1,26 @@
 use forensic_rs::err::{ForensicError, ForensicResult};
 use std::{cell::RefCell, cmp::Ordering, rc::Rc};
 
+/// Decompresses LZ77+Huffman data ([MS-XCA] 2.1) into `out_buf`, producing at most
+/// `output_size` bytes.
+///
 /// Inspired by https://raw.githubusercontent.com/Velocidex/go-prefetch/master/lzxpress.go
-pub fn decompress(in_buf: &[u8], out_buf: &mut Vec<u8>) -> ForensicResult<()> {
+pub fn decompress(in_buf: &[u8], out_buf: &mut Vec<u8>, output_size: usize) -> ForensicResult<()> {
     let mut in_index = 0;
     let mut out_index = 0;
-    let output_size = out_buf.capacity();
+    if output_size == 0 {
+        return Ok(());
+    }
     loop {
         let chunk_size = (output_size - out_index).min(65536);
-        let (new_in_index, new_out_index) =
-            decompress_chunk(in_index, in_buf, out_index, out_buf, chunk_size)?;
+        let (new_in_index, new_out_index) = decompress_chunk(
+            in_index,
+            in_buf,
+            out_index,
+            out_buf,
+            chunk_size,
+            output_size,
+        )?;
         if new_in_index <= in_index && new_out_index <= out_index {
             return Err(ForensicError::bad_format_str(
                 "decompress_expres_huff(): No progress when decompressing a chunk",
@@ -32,8 +43,10 @@ fn decompress_chunk(
     out_index: usize,
     out_buf: &mut Vec<u8>,
     chunk_size: usize,
+    output_size: usize,
 ) -> ForensicResult<(usize, usize)> {
-    if in_index + 256 > in_buf.len() {
+    // The 256-byte table of code lengths is followed by at least 4 bytes of bit stream.
+    if in_index + 256 + 4 > in_buf.len() {
         return Err(ForensicError::bad_format_str(
             "decompress_expres_huff(): Not enough compressed data for Huffman table",
         ));
@@ -78,11 +91,26 @@ fn decompress_chunk(
                         bstr.source[bstr.index..bstr.index + 2].try_into().unwrap(),
                     ) as u32;
                     bstr.index += 2;
+                    if length == 0 {
+                        if bstr.index + 4 > bstr.source.len() {
+                            return Ok((bstr.index, i));
+                        }
+                        length = u32::from_le_bytes(
+                            bstr.source[bstr.index..bstr.index + 4].try_into().unwrap(),
+                        );
+                        bstr.index += 4;
+                    }
+                    if length < 15 {
+                        return Err(ForensicError::bad_format_str(
+                            "decompress_expres_huff(): Invalid match length",
+                        ));
+                    }
                 }
             }
             bstr.skip(symbol)?;
 
-            length += 3;
+            // A match may run past the end of the chunk but never past the output.
+            let mut length = (length as usize).saturating_add(3).min(output_size - i);
             loop {
                 if (i as i32 + offset) < 0 {
                     return Err(ForensicError::bad_format_str("decompress_expres_huff(): Invalid offset position when decompressing a chunk"));
@@ -199,6 +227,10 @@ fn prefix_code_tree_add_leaf(
             ))
         }
     };
+    // A table of code lengths that is not a valid prefix code can need more nodes than a
+    // complete tree of 512 symbols has.
+    let too_many_nodes =
+        || ForensicError::bad_format_str("decompress_expres_huff(): Invalid Huffman table");
     let mut i = leaf_index + 1;
     let mut child_index;
     let mut bits = bits;
@@ -207,9 +239,9 @@ fn prefix_code_tree_add_leaf(
         child_index = (mask >> bits) & 1;
         let mut nt = node.borrow_mut();
         if nt.child[child_index as usize].is_none() {
-            nt.child[child_index as usize] = Some(tree_nodes[i].clone());
-            let mut i_node = tree_nodes[i].borrow_mut();
-            i_node.leaf = false;
+            let new_node = tree_nodes.get(i).ok_or_else(too_many_nodes)?;
+            nt.child[child_index as usize] = Some(new_node.clone());
+            new_node.borrow_mut().leaf = false;
             i += 1;
         }
         let new_node = nt.child[child_index as usize].as_ref().unwrap().clone();
@@ -217,7 +249,12 @@ fn prefix_code_tree_add_leaf(
         node = new_node;
     }
     let mut nt = node.borrow_mut();
-    nt.child[(mask & 1) as usize] = Some(tree_nodes[leaf_index].clone());
+    nt.child[(mask & 1) as usize] = Some(
+        tree_nodes
+            .get(leaf_index)
+            .ok_or_else(too_many_nodes)?
+            .clone(),
+    );
     Ok(i as u32)
 }
 
@@ -264,7 +301,12 @@ fn prefix_code_tree_rebuild(input: &[u8]) -> ForensicResult<Rc<RefCell<PrefixCod
 
     let mut j = 1;
     for symbol in symbol_info.iter().take(512).skip(i) {
-        let mut tree_node_j = tree_nodes[j].borrow_mut();
+        let mut tree_node_j = tree_nodes
+            .get(j)
+            .ok_or_else(|| {
+                ForensicError::bad_format_str("decompress_expres_huff(): Invalid Huffman table")
+            })?
+            .borrow_mut();
         tree_node_j.id = j as u32;
         tree_node_j.symbol = symbol.symbol;
         tree_node_j.leaf = true;
@@ -332,40 +374,62 @@ fn basic_huffman_decoding() {
         0x8d, 0x04, 0x00, 0x00, 0x00, 0x00,
     ];
 
-    let mut decoded_value = Vec::with_capacity(uncompressed.len());
-    decompress(&encoded, &mut decoded_value).unwrap();
+    let mut decoded_value = Vec::new();
+    decompress(&encoded, &mut decoded_value, uncompressed.len()).unwrap();
     assert_eq!(uncompressed, &decoded_value[..]);
 
     // Truncated Huffman table must error instead of looping forever
-    let mut truncated_value = Vec::with_capacity(uncompressed.len());
-    assert!(decompress(&encoded[..200], &mut truncated_value).is_err());
+    let mut truncated_value = Vec::new();
+    assert!(decompress(&encoded[..200], &mut truncated_value, uncompressed.len()).is_err());
 }
+
+#[cfg(test)]
+/// "abc" repeated 100 times.
+const ABC_REPEATED: [u8; 263] = [
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x30, 0x23, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x20,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0xa8, 0xdc, 0x00, 0x00, 0xff, 0x26, 0x01,
+];
 
 #[test]
 fn basic_huffman_decoding2() {
     let uncompressed = b"abcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabc";
-    let encoded: [u8; 263] = [
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0x30, 0x23, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x20, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0x00, 0xa8, 0xdc, 0x00, 0x00, 0xff, 0x26, 0x01,
-    ];
+    let encoded = ABC_REPEATED;
 
-    let mut decoded_value = Vec::with_capacity(uncompressed.len());
-    decompress(&encoded, &mut decoded_value).unwrap();
+    let mut decoded_value = Vec::new();
+    decompress(&encoded, &mut decoded_value, uncompressed.len()).unwrap();
+    assert_eq!(uncompressed, &decoded_value[..]);
+}
+
+#[test]
+fn invalid_huffman_table_is_an_error() {
+    // Every symbol has a 15-bit code: the lengths do not form a prefix code and need more
+    // tree nodes than a complete code of 512 symbols.
+    let mut encoded = vec![0xffu8; 256];
+    encoded.extend_from_slice(&[0u8; 16]);
+    let mut decoded_value = Vec::new();
+    assert!(decompress(&encoded, &mut decoded_value, 1024).is_err());
+}
+
+#[test]
+fn matches_stop_at_the_output_size() {
+    // "abc" followed by one long match: only the first 12 bytes are wanted.
+    let uncompressed = b"abcabcabcabc";
+    let mut decoded_value = Vec::new();
+    decompress(&ABC_REPEATED, &mut decoded_value, uncompressed.len()).unwrap();
     assert_eq!(uncompressed, &decoded_value[..]);
 }

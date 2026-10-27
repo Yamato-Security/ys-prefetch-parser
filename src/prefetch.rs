@@ -10,15 +10,20 @@ use forensic_rs::{
 };
 
 use crate::{
-    common::{u32_at_pos, u64_at_pos, PrefetchFile, PrefetchFileInformation},
+    common::{
+        bytes_at, u32_at_pos, u64_at_pos, utf16_until_nul, PrefetchFile, PrefetchFileInformation,
+    },
     decompress::{decompress, CompressionAlgorithm},
     metrics::*,
     volume::*,
 };
 
-const PREFETCH_SIZE_LIMIT: u64 = 1_000_000;
+/// Largest prefetch file, compressed or not, that is read. Real files are far smaller (the
+/// largest seen is about 1 MB uncompressed, which the previous limit of 1,000,000 bytes
+/// rejected); the limit only keeps other large files from being read into memory.
+const PREFETCH_SIZE_LIMIT: u64 = 64 * 1024 * 1024;
 /// Signature = MAM
-const PREFETCH_COMPRESS_SIGNATURE: u32 = u32::from_le_bytes([b'M', b'A', b'M', b'\0']);
+const PREFETCH_COMPRESS_SIGNATURE: u32 = u32::from_le_bytes(*b"MAM\0");
 const PREFETC_COMPRESS_SIGNATURE_U8: &[u8] = b"MAM";
 
 /// Reads all prefetch files on the folder C:\Windows\Prefetch.
@@ -114,11 +119,43 @@ pub fn read_prefetch_file_compressed(
     }
     let mut buffer = Vec::with_capacity(4096);
     file.read_to_end(&mut buffer)?;
-    let header = &buffer[0..8];
+    process_compressed_data(artifact_name, &buffer)
+}
+
+/// Parses a prefetch file held in memory, compressed (Windows 8 and later) or not. The file
+/// name (or a path ending in it) is used to check the executable name and the hash.
+///
+/// ```rust
+/// use frnsc_prefetch::prelude::*;
+/// let data = std::fs::read("./artifacts/30/C/Windows/Prefetch/RUST_OUT.EXE-5D2C8541.pf").unwrap();
+/// let prefetch = read_prefetch_bytes("RUST_OUT.EXE-5D2C8541.pf", &data).unwrap();
+/// assert_eq!(prefetch.name, "RUST_OUT.EXE");
+/// ```
+pub fn read_prefetch_bytes(artifact_name: &str, data: &[u8]) -> ForensicResult<PrefetchFile> {
+    if data.len() as u64 > PREFETCH_SIZE_LIMIT {
+        notify_low!(
+            NotificationType::AntiForensicsDetected,
+            "Prefetch file {} size is abnormally large",
+            artifact_name
+        );
+        return Err(ForensicError::bad_format_string(format!(
+            "Prefetch file {} size is abnormally large",
+            artifact_name
+        )));
+    }
+    if data.starts_with(PREFETC_COMPRESS_SIGNATURE_U8) {
+        process_compressed_data(artifact_name, data)
+    } else {
+        process_prefetch_data(artifact_name, data)
+    }
+}
+
+fn process_compressed_data(artifact_name: &str, buffer: &[u8]) -> ForensicResult<PrefetchFile> {
+    let header = bytes_at(buffer, 0, 8, "compressed prefetch header")?;
     let compressed = &buffer[8..];
     let signature = u32_at_pos(header, 0);
     let decompressed_size = u32_at_pos(header, 4);
-    let compress_algorithm: CompressionAlgorithm = ((signature & 0x0F000000) >> 24).into();
+    let compress_algorithm_value = (signature & 0x0F000000) >> 24;
     let crc_ck = (signature & 0xF0000000) >> 28;
     let magic = signature & 0x00FFFFFF;
     if magic != PREFETCH_COMPRESS_SIGNATURE {
@@ -128,6 +165,11 @@ pub fn read_prefetch_file_compressed(
         )));
     }
     if crc_ck > 0 {
+        if compressed.len() < 4 {
+            return Err(ForensicError::bad_format_str(
+                "The CRC of the prefetch is outside of the prefetch data",
+            ));
+        }
         let file_crc = u32_at_pos(compressed, 0);
         let mut hash = crc32fast::Hasher::new();
         hash.update(header);
@@ -147,8 +189,30 @@ pub fn read_prefetch_file_compressed(
             ));
         }
     }
+    if compress_algorithm_value > 4 {
+        return Err(ForensicError::bad_format_string(format!(
+            "Unknown prefetch compression algorithm: {}",
+            compress_algorithm_value
+        )));
+    }
+    if u64::from(decompressed_size) > PREFETCH_SIZE_LIMIT {
+        notify_low!(
+            NotificationType::AntiForensicsDetected,
+            "Prefetch file {} decompressed size is abnormally large",
+            artifact_name
+        );
+        return Err(ForensicError::bad_format_str(
+            "Decompressed size is abnormally large",
+        ));
+    }
+    let compress_algorithm: CompressionAlgorithm = compress_algorithm_value.into();
     let mut decompressed = Vec::with_capacity(decompressed_size as usize);
-    decompress(compressed, &mut decompressed, compress_algorithm)?;
+    decompress(
+        compressed,
+        &mut decompressed,
+        compress_algorithm,
+        decompressed_size as usize,
+    )?;
     process_prefetch_data(artifact_name, &decompressed)
 }
 
@@ -184,58 +248,48 @@ pub fn read_prefetch_file_no_compressed(
 }
 
 fn process_prefetch_data(artifact_name: &str, buffer: &[u8]) -> ForensicResult<PrefetchFile> {
-    let version = u32::from_le_bytes(buffer[0..4].try_into().unwrap());
+    bytes_at(buffer, 0, HEADER_SIZE, "prefetch header")?;
+    let version = u32_at_pos(buffer, 0);
     let signature = &buffer[4..8];
     if b"SCCA" != signature {
         return Err(ForensicError::bad_format_str("Invalid prefetch signature"));
     }
-    //let file_size = u32::from_le_bytes(buffer[12..16].try_into().unwrap());
-    let name_buffer = &buffer[16..76];
-    let name_buffer: &[u16] = unsafe { std::mem::transmute(name_buffer) };
-    let end = name_buffer
-        .iter()
-        .position(|&v| v == 0)
-        .unwrap_or(name_buffer.len());
-    let executable_name = String::from_utf16_lossy(&name_buffer[0..end]);
-    let raw_hash = u32::from_le_bytes(buffer[76..80].try_into().unwrap());
+    let executable_name = utf16_until_nul(&buffer[16..76]);
+    let raw_hash = u32_at_pos(buffer, 76);
     check_prefetch_info_correct(artifact_name, &executable_name, raw_hash);
 
     let mut prefetch_content = PrefetchFile {
         name: executable_name,
+        hash: raw_hash,
+        file_size: u32_at_pos(buffer, 12),
         version,
         ..Default::default()
     };
     if version == 17 {
-        let info = file_information_17(&buffer[84..])?;
+        let info = file_information_17(file_information(buffer, FILE_INFORMATION_SIZE_V17)?)?;
         prefetch_content.metrics = metrics_array_17(buffer, &info)?;
         prefetch_content.volume = volume_info_17(buffer, &info)?;
         prefetch_content.last_run_times = info.last_run_times;
         prefetch_content.run_count = info.run_count;
     } else if version == 23 {
-        let info = file_information_23(&buffer[84..])?;
+        let info = file_information_23(file_information(buffer, FILE_INFORMATION_SIZE_V23)?)?;
         prefetch_content.metrics = metrics_array_23(buffer, &info)?;
         prefetch_content.volume = volume_info_23(buffer, &info)?;
         prefetch_content.last_run_times = info.last_run_times;
         prefetch_content.run_count = info.run_count;
     } else if version == 26 {
-        let info = file_information_26(&buffer[84..])?;
+        let info = file_information_26(file_information(buffer, FILE_INFORMATION_SIZE_V26)?)?;
         prefetch_content.metrics = metrics_array_26(buffer, &info)?;
         prefetch_content.volume = volume_info_26(buffer, &info)?;
         prefetch_content.last_run_times = info.last_run_times;
         prefetch_content.run_count = info.run_count;
-    } else if version == 30 {
-        let info = file_information_30(&buffer[84..])?;
+    } else if version == 30 || version == 31 {
+        let info = file_information_30(file_information(buffer, FILE_INFORMATION_SIZE_V30)?)?;
         prefetch_content.metrics = metrics_array_30(buffer, &info)?;
         prefetch_content.volume = volume_info_30(buffer, &info)?;
         prefetch_content.last_run_times = info.last_run_times;
         prefetch_content.run_count = info.run_count;
-    } else if version == 31 {
-        let info = file_information_30(&buffer[84..])?;
-        prefetch_content.metrics = metrics_array_30(buffer, &info)?;
-        prefetch_content.volume = volume_info_30(buffer, &info)?;
-        prefetch_content.last_run_times = info.last_run_times;
-        prefetch_content.run_count = info.run_count;
-    }else {
+    } else {
         notify_low!(
             NotificationType::Informational,
             "The prefetch version is unknown: {}",
@@ -247,6 +301,19 @@ fn process_prefetch_data(artifact_name: &str, buffer: &[u8]) -> ForensicResult<P
         )));
     };
     Ok(prefetch_content)
+}
+
+/// Size of the file header; the file information follows it.
+const HEADER_SIZE: usize = 84;
+const FILE_INFORMATION_SIZE_V17: usize = 68;
+const FILE_INFORMATION_SIZE_V23: usize = 156;
+const FILE_INFORMATION_SIZE_V26: usize = 220;
+/// Version 30 has a 220-byte variant (the metrics array at offset 304, like version 26) and
+/// a 212-byte one (offset 296).
+const FILE_INFORMATION_SIZE_V30: usize = 212;
+
+fn file_information(buffer: &[u8], size: usize) -> ForensicResult<&[u8]> {
+    bytes_at(buffer, HEADER_SIZE, size, "file information")
 }
 
 fn file_information_17(buffer: &[u8]) -> ForensicResult<PrefetchFileInformation> {
@@ -354,7 +421,7 @@ fn file_information_30v2(buffer: &[u8]) -> ForensicResult<PrefetchFileInformatio
 }
 
 fn file_information_30(buffer: &[u8]) -> ForensicResult<PrefetchFileInformation> {
-    let metrics_offsets = u32::from_le_bytes(buffer[0..4].try_into().unwrap());
+    let metrics_offsets = u32_at_pos(buffer, 0);
     if metrics_offsets == 304 {
         return file_information_30v1(buffer);
     }
@@ -362,35 +429,67 @@ fn file_information_30(buffer: &[u8]) -> ForensicResult<PrefetchFileInformation>
 }
 
 fn check_prefetch_info_correct(artifact_name: &str, executable_name: &str, hash: u32) {
-    if artifact_name.ends_with(".pf") {
-        match extract_hash_ands_signature(artifact_name) {
-            Ok((expected_name, expected_hash)) => {
-                if expected_name != executable_name {
-                    forensic_rs::info!("Invalid prefetch executable name expected={expected_name} found={executable_name}");
-                    forensic_rs::notify_info!(NotificationType::AntiForensicsDetected, "Invalid prefetch executable name expected={expected_name} found={executable_name}");
-                }
-                if hash != expected_hash {
-                    forensic_rs::info!(
-                        "Invalid prefetch hash expected={expected_hash} found={hash}"
-                    );
-                    forensic_rs::notify_info!(
-                        NotificationType::AntiForensicsDetected,
-                        "Invalid prefetch hash expected={expected_hash} found={hash}"
-                    );
-                }
+    match extract_hash_ands_signature(artifact_name) {
+        Ok((expected_name, expected_hash)) => {
+            if !expected_name.eq_ignore_ascii_case(executable_name) {
+                forensic_rs::info!("Invalid prefetch executable name expected={expected_name} found={executable_name}");
+                forensic_rs::notify_info!(NotificationType::AntiForensicsDetected, "Invalid prefetch executable name expected={expected_name} found={executable_name}");
             }
-            Err(e) => {
-                forensic_rs::info!("{}", e);
+            if hash != expected_hash {
+                forensic_rs::info!(
+                    "Invalid prefetch hash expected={expected_hash:08X} found={hash:08X}"
+                );
+                forensic_rs::notify_info!(
+                    NotificationType::AntiForensicsDetected,
+                    "Invalid prefetch hash expected={expected_hash:08X} found={hash:08X}"
+                );
             }
+        }
+        Err(e) => {
+            forensic_rs::info!("{}", e);
         }
     }
 }
 
-fn extract_hash_ands_signature(mut name: &str) -> ForensicResult<(&str, u32)> {
-    if name.ends_with(".pf") {
-        name = &name[0..name.len() - 3]
+/// Splits a prefetch file name such as `CMD.EXE-087B4001.pf` (or a path ending in one) into
+/// the executable name and the hexadecimal prefetch hash.
+fn extract_hash_ands_signature(name: &str) -> ForensicResult<(&str, u32)> {
+    let invalid = || ForensicError::bad_format_str("Invalid prefetch artifact name");
+    let name = name.rsplit(['/', '\\']).next().unwrap_or(name);
+    let stem = name
+        .len()
+        .checked_sub(3)
+        .filter(|&end| {
+            name.get(end..)
+                .is_some_and(|ext| ext.eq_ignore_ascii_case(".pf"))
+        })
+        .map(|end| &name[..end])
+        .ok_or_else(invalid)?;
+    let (executable, hash) = stem.rsplit_once('-').ok_or_else(invalid)?;
+    if hash.len() != 8 {
+        return Err(invalid());
     }
-    name.split_once('-')
-        .map(|v| (v.0, v.1.parse::<u32>().unwrap_or_default()))
-        .ok_or_else(|| ForensicError::bad_format_str("Invalid prefetch artifact name"))
+    let hash = u32::from_str_radix(hash, 16).map_err(|_| invalid())?;
+    Ok((executable, hash))
+}
+
+#[cfg(test)]
+mod name_tests {
+    use super::extract_hash_ands_signature;
+
+    #[test]
+    fn prefetch_file_names_are_split_at_the_last_dash() {
+        assert_eq!(
+            extract_hash_ands_signature("CMD.EXE-087B4001.pf").unwrap(),
+            ("CMD.EXE", 0x087B4001)
+        );
+        assert_eq!(
+            extract_hash_ands_signature(r"C:\Windows\Prefetch\MICROSOFT-EDGE.EXE-1C2D3E4F.PF")
+                .unwrap(),
+            ("MICROSOFT-EDGE.EXE", 0x1C2D3E4F)
+        );
+        assert!(extract_hash_ands_signature("CMD.EXE.pf").is_err());
+        assert!(extract_hash_ands_signature("CMD.EXE-XYZ.pf").is_err());
+        assert!(extract_hash_ands_signature("CMD.EXE-087B4001.txt").is_err());
+    }
 }

@@ -1,6 +1,60 @@
 use forensic_rs::err::{ForensicError, ForensicResult};
 
-use crate::common::{u32_at_pos, PrefetchFileInformation, Trace};
+use crate::common::{array_at, u32_at_pos, PrefetchFileInformation, Trace};
+
+/// Size of a trace chain entry in format versions 17, 23 and 26.
+const TRACE_ENTRY_SIZE_V17: usize = 12;
+/// Size of a trace chain entry in format versions 30 and 31.
+const TRACE_ENTRY_SIZE_V30: usize = 8;
+
+fn trace_array<'a>(
+    file_buffer: &'a [u8],
+    info: &PrefetchFileInformation,
+    entry_size: usize,
+) -> ForensicResult<&'a [u8]> {
+    array_at(
+        file_buffer,
+        info.trace_chain_offset as usize,
+        info.trace_chain_count as usize,
+        entry_size,
+        "trace chain array",
+    )
+}
+
+/// The `size` entries of the trace chain array starting at entry `index`.
+fn trace_entries(
+    trace_array: &[u8],
+    entry_size: usize,
+    index: usize,
+    size: usize,
+) -> ForensicResult<&[u8]> {
+    index
+        .checked_mul(entry_size)
+        .ok_or_else(|| {
+            ForensicError::bad_format_str(
+                "The trace array position is greater than the file buffer length",
+            )
+        })
+        .and_then(|offset| array_at(trace_array, offset, size, entry_size, "trace chain"))
+}
+
+fn trace_v17(entry: &[u8; TRACE_ENTRY_SIZE_V17]) -> Trace {
+    Trace {
+        flags: entry[8].into(),
+        block_offset: u32_at_pos(entry, 4),
+        used_bitfield: entry[10],
+        prefetched_bitfield: entry[11],
+    }
+}
+
+fn trace_v30(entry: &[u8; TRACE_ENTRY_SIZE_V30]) -> Trace {
+    Trace {
+        flags: entry[4].into(),
+        block_offset: u32_at_pos(entry, 0),
+        used_bitfield: entry[6],
+        prefetched_bitfield: entry[7],
+    }
+}
 
 pub fn traces_for_dependency_v17(
     file_buffer: &[u8],
@@ -8,116 +62,54 @@ pub fn traces_for_dependency_v17(
     index: usize,
     size: usize,
 ) -> ForensicResult<Vec<Trace>> {
-    let end_pos = (info.trace_chain_offset + info.trace_chain_count * 12) as usize;
-    if end_pos > file_buffer.len() {
-        return Err(ForensicError::bad_format_str(
-            "The trace array position is greater than the file buffer length",
-        ));
-    }
-    let trace_array = &file_buffer[info.trace_chain_offset as usize..end_pos];
-    let mut traces = Vec::with_capacity(info.trace_chain_count as usize);
-    if (index + size) * 12 > trace_array.len() {
-        return Err(ForensicError::bad_format_str(
-            "The trace array position is greater than the file buffer length",
-        ));
-    }
-    for i in 0..size {
-        let pos = (index + i) * 12;
-        let entry = &trace_array[pos..];
-        let block_offset = u32_at_pos(entry, 4);
-        let flags = entry[8];
-        traces.push(Trace {
-            flags: flags.into(),
-            block_offset,
-            used_bitfield: entry[10],
-            prefetched_bitfield: entry[11],
-        });
-    }
-    Ok(traces)
+    let trace_array = trace_array(file_buffer, info, TRACE_ENTRY_SIZE_V17)?;
+    let entries = trace_entries(trace_array, TRACE_ENTRY_SIZE_V17, index, size)?;
+    Ok(entries
+        .as_chunks::<TRACE_ENTRY_SIZE_V17>()
+        .0
+        .iter()
+        .map(trace_v17)
+        .collect())
 }
 
 pub fn process_trace_chain_v17(
     file_buffer: &[u8],
     info: &PrefetchFileInformation,
 ) -> ForensicResult<Vec<Trace>> {
-    let end_pos = (info.trace_chain_offset + info.trace_chain_count * 12) as usize;
-    if end_pos > file_buffer.len() {
-        return Err(ForensicError::bad_format_str(
-            "The trace array position is greater than the file buffer length",
-        ));
-    }
-    let trace_array = &file_buffer[info.trace_chain_offset as usize..end_pos];
-    let mut traces = Vec::with_capacity(info.trace_chain_count as usize);
-    for i in 0..(info.trace_chain_count as usize) {
-        let pos = i * 12;
-        let entry = &trace_array[pos..];
-        let block_offset = u32_at_pos(entry, 4);
-        let flags = entry[8];
-        traces.push(Trace {
-            flags: flags.into(),
-            block_offset,
-            used_bitfield: entry[10],
-            prefetched_bitfield: entry[11],
-        });
-    }
-    Ok(traces)
+    let trace_array = trace_array(file_buffer, info, TRACE_ENTRY_SIZE_V17)?;
+    Ok(trace_array
+        .as_chunks::<TRACE_ENTRY_SIZE_V17>()
+        .0
+        .iter()
+        .map(trace_v17)
+        .collect())
 }
+
 pub fn process_trace_chain_v30(
     file_buffer: &[u8],
     info: &PrefetchFileInformation,
 ) -> ForensicResult<Vec<Trace>> {
-    let end_pos = (info.trace_chain_offset + info.trace_chain_count * 8) as usize;
-    if end_pos > file_buffer.len() {
-        return Err(ForensicError::bad_format_str(
-            "The trace array position is greater than the file buffer length",
-        ));
-    }
-    let trace_array = &file_buffer[info.trace_chain_offset as usize..end_pos];
-    let mut traces = Vec::with_capacity(info.trace_chain_count as usize);
-    for i in 0..(info.trace_chain_count as usize) {
-        let pos = i * 8;
-        let entry = &trace_array[pos..];
-        let block_offset = u32_at_pos(entry, 0);
-        let flags = entry[4];
-        traces.push(Trace {
-            flags: flags.into(),
-            block_offset,
-            used_bitfield: entry[6],
-            prefetched_bitfield: entry[7],
-        });
-    }
-    Ok(traces)
+    let trace_array = trace_array(file_buffer, info, TRACE_ENTRY_SIZE_V30)?;
+    Ok(trace_array
+        .as_chunks::<TRACE_ENTRY_SIZE_V30>()
+        .0
+        .iter()
+        .map(trace_v30)
+        .collect())
 }
+
 pub fn traces_for_dependency_v30(
     file_buffer: &[u8],
     info: &PrefetchFileInformation,
     index: usize,
     size: usize,
 ) -> ForensicResult<Vec<Trace>> {
-    let end_pos = (info.trace_chain_offset + info.trace_chain_count * 8) as usize;
-    if end_pos > file_buffer.len() {
-        return Err(ForensicError::bad_format_str(
-            "The trace array position is greater than the file buffer length",
-        ));
-    }
-    let trace_array = &file_buffer[info.trace_chain_offset as usize..end_pos];
-    let mut traces = Vec::with_capacity(info.trace_chain_count as usize);
-    if (index + size) * 8 > trace_array.len() {
-        return Err(ForensicError::bad_format_str(
-            "The trace array position is greater than the file buffer length",
-        ));
-    }
-    for i in 0..size {
-        let pos = (index + i) * 8;
-        let entry = &trace_array[pos..];
-        let block_offset = u32_at_pos(entry, 0);
-        let flags = entry[4].into();
-        traces.push(Trace {
-            flags,
-            block_offset,
-            used_bitfield: entry[6],
-            prefetched_bitfield: entry[7],
-        });
-    }
-    Ok(traces)
+    let trace_array = trace_array(file_buffer, info, TRACE_ENTRY_SIZE_V30)?;
+    let entries = trace_entries(trace_array, TRACE_ENTRY_SIZE_V30, index, size)?;
+    Ok(entries
+        .as_chunks::<TRACE_ENTRY_SIZE_V30>()
+        .0
+        .iter()
+        .map(trace_v30)
+        .collect())
 }
