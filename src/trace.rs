@@ -22,12 +22,12 @@ fn trace_array<'a>(
 }
 
 /// The `size` entries of the trace chain array starting at entry `index`.
-fn trace_entries<'a>(
-    trace_array: &'a [u8],
+fn trace_entries(
+    trace_array: &[u8],
     entry_size: usize,
     index: usize,
     size: usize,
-) -> ForensicResult<&'a [u8]> {
+) -> ForensicResult<&[u8]> {
     index
         .checked_mul(entry_size)
         .ok_or_else(|| {
@@ -38,7 +38,7 @@ fn trace_entries<'a>(
         .and_then(|offset| array_at(trace_array, offset, size, entry_size, "trace chain"))
 }
 
-fn trace_v17(entry: &[u8]) -> Trace {
+fn trace_v17(entry: &[u8; TRACE_ENTRY_SIZE_V17]) -> Trace {
     Trace {
         flags: entry[8].into(),
         block_offset: u32_at_pos(entry, 4),
@@ -47,7 +47,7 @@ fn trace_v17(entry: &[u8]) -> Trace {
     }
 }
 
-fn trace_v30(entry: &[u8]) -> Trace {
+fn trace_v30(entry: &[u8; TRACE_ENTRY_SIZE_V30]) -> Trace {
     Trace {
         flags: entry[4].into(),
         block_offset: u32_at_pos(entry, 0),
@@ -65,7 +65,9 @@ pub fn traces_for_dependency_v17(
     let trace_array = trace_array(file_buffer, info, TRACE_ENTRY_SIZE_V17)?;
     let entries = trace_entries(trace_array, TRACE_ENTRY_SIZE_V17, index, size)?;
     Ok(entries
-        .chunks_exact(TRACE_ENTRY_SIZE_V17)
+        .as_chunks::<TRACE_ENTRY_SIZE_V17>()
+        .0
+        .iter()
         .map(trace_v17)
         .collect())
 }
@@ -76,7 +78,9 @@ pub fn process_trace_chain_v17(
 ) -> ForensicResult<Vec<Trace>> {
     let trace_array = trace_array(file_buffer, info, TRACE_ENTRY_SIZE_V17)?;
     Ok(trace_array
-        .chunks_exact(TRACE_ENTRY_SIZE_V17)
+        .as_chunks::<TRACE_ENTRY_SIZE_V17>()
+        .0
+        .iter()
         .map(trace_v17)
         .collect())
 }
@@ -87,7 +91,9 @@ pub fn process_trace_chain_v30(
 ) -> ForensicResult<Vec<Trace>> {
     let trace_array = trace_array(file_buffer, info, TRACE_ENTRY_SIZE_V30)?;
     Ok(trace_array
-        .chunks_exact(TRACE_ENTRY_SIZE_V30)
+        .as_chunks::<TRACE_ENTRY_SIZE_V30>()
+        .0
+        .iter()
         .map(trace_v30)
         .collect())
 }
@@ -101,7 +107,9 @@ pub fn traces_for_dependency_v30(
     let trace_array = trace_array(file_buffer, info, TRACE_ENTRY_SIZE_V30)?;
     let entries = trace_entries(trace_array, TRACE_ENTRY_SIZE_V30, index, size)?;
     Ok(entries
-        .chunks_exact(TRACE_ENTRY_SIZE_V30)
+        .as_chunks::<TRACE_ENTRY_SIZE_V30>()
+        .0
+        .iter()
         .map(trace_v30)
         .collect())
 }

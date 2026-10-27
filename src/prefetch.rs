@@ -23,7 +23,7 @@ use crate::{
 /// rejected); the limit only keeps other large files from being read into memory.
 const PREFETCH_SIZE_LIMIT: u64 = 64 * 1024 * 1024;
 /// Signature = MAM
-const PREFETCH_COMPRESS_SIGNATURE: u32 = u32::from_le_bytes([b'M', b'A', b'M', b'\0']);
+const PREFETCH_COMPRESS_SIGNATURE: u32 = u32::from_le_bytes(*b"MAM\0");
 const PREFETC_COMPRESS_SIGNATURE_U8: &[u8] = b"MAM";
 
 /// Reads all prefetch files on the folder C:\Windows\Prefetch.
@@ -283,13 +283,7 @@ fn process_prefetch_data(artifact_name: &str, buffer: &[u8]) -> ForensicResult<P
         prefetch_content.volume = volume_info_26(buffer, &info)?;
         prefetch_content.last_run_times = info.last_run_times;
         prefetch_content.run_count = info.run_count;
-    } else if version == 30 {
-        let info = file_information_30(file_information(buffer, FILE_INFORMATION_SIZE_V30)?)?;
-        prefetch_content.metrics = metrics_array_30(buffer, &info)?;
-        prefetch_content.volume = volume_info_30(buffer, &info)?;
-        prefetch_content.last_run_times = info.last_run_times;
-        prefetch_content.run_count = info.run_count;
-    } else if version == 31 {
+    } else if version == 30 || version == 31 {
         let info = file_information_30(file_information(buffer, FILE_INFORMATION_SIZE_V30)?)?;
         prefetch_content.metrics = metrics_array_30(buffer, &info)?;
         prefetch_content.volume = volume_info_30(buffer, &info)?;

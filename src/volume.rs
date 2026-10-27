@@ -147,8 +147,8 @@ fn extract_file_references(
         ForensicError::bad_format_str("The file reference size is greater than the buffer")
     })?;
     let mut files = Vec::with_capacity(file_reference_count);
-    for reference in references.chunks_exact(8) {
-        let file = NtfsFile::from_reference(u64_at_pos(reference, 0));
+    for reference in references.as_chunks::<8>().0 {
+        let file = NtfsFile::from_reference(u64::from_le_bytes(*reference));
         if file.mft_entry == 0 {
             continue;
         }
