@@ -25,24 +25,30 @@ impl From<u32> for CompressionAlgorithm {
     }
 }
 
+/// Decompresses `in_buf` into `out_buf`, producing at most `output_size` bytes.
 pub fn decompress(
     in_buf: &[u8],
     out_buf: &mut Vec<u8>,
     algorithm: CompressionAlgorithm,
+    output_size: usize,
 ) -> ForensicResult<()> {
     match algorithm {
         CompressionAlgorithm::CompressionFormatNone => {
-            out_buf.copy_from_slice(in_buf);
+            out_buf.extend_from_slice(&in_buf[..in_buf.len().min(output_size)]);
         }
-        CompressionAlgorithm::CompressionFormatDefault => {
+        // COMPRESSION_FORMAT_DEFAULT is LZNT1.
+        CompressionAlgorithm::CompressionFormatDefault
+        | CompressionAlgorithm::CompressionFormatLznt1 => {
             return Err(forensic_rs::err::ForensicError::Other(
-                "Default compression algorithm not supported".into(),
+                "LZNT1 compression is not supported".into(),
             ))
         }
-        CompressionAlgorithm::CompressionFormatLznt1 => lz77::decompress(in_buf, out_buf)?,
-        CompressionAlgorithm::CompressionFormatXpress => xpress_huff::decompress(in_buf, out_buf)?, // Can't happen
+        // COMPRESSION_FORMAT_XPRESS is plain LZ77.
+        CompressionAlgorithm::CompressionFormatXpress => {
+            lz77::decompress(in_buf, out_buf, output_size)?
+        }
         CompressionAlgorithm::CompressionFormatXpressHuff => {
-            xpress_huff::decompress(in_buf, out_buf)?
+            xpress_huff::decompress(in_buf, out_buf, output_size)?
         }
     }
     Ok(())

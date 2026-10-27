@@ -18,7 +18,10 @@ use crate::{
     volume::*,
 };
 
-const PREFETCH_SIZE_LIMIT: u64 = 1_000_000;
+/// Largest prefetch file, compressed or not, that is read. Real files are far smaller (the
+/// largest seen is about 1 MB uncompressed, which the previous limit of 1,000,000 bytes
+/// rejected); the limit only keeps other large files from being read into memory.
+const PREFETCH_SIZE_LIMIT: u64 = 64 * 1024 * 1024;
 /// Signature = MAM
 const PREFETCH_COMPRESS_SIGNATURE: u32 = u32::from_le_bytes([b'M', b'A', b'M', b'\0']);
 const PREFETC_COMPRESS_SIGNATURE_U8: &[u8] = b"MAM";
@@ -120,7 +123,7 @@ pub fn read_prefetch_file_compressed(
     let compressed = &buffer[8..];
     let signature = u32_at_pos(header, 0);
     let decompressed_size = u32_at_pos(header, 4);
-    let compress_algorithm: CompressionAlgorithm = ((signature & 0x0F000000) >> 24).into();
+    let compress_algorithm_value = (signature & 0x0F000000) >> 24;
     let crc_ck = (signature & 0xF0000000) >> 28;
     let magic = signature & 0x00FFFFFF;
     if magic != PREFETCH_COMPRESS_SIGNATURE {
@@ -154,8 +157,30 @@ pub fn read_prefetch_file_compressed(
             ));
         }
     }
+    if compress_algorithm_value > 4 {
+        return Err(ForensicError::bad_format_string(format!(
+            "Unknown prefetch compression algorithm: {}",
+            compress_algorithm_value
+        )));
+    }
+    if u64::from(decompressed_size) > PREFETCH_SIZE_LIMIT {
+        notify_low!(
+            NotificationType::AntiForensicsDetected,
+            "Prefetch file {} decompressed size is abnormally large",
+            artifact_name
+        );
+        return Err(ForensicError::bad_format_str(
+            "Decompressed size is abnormally large",
+        ));
+    }
+    let compress_algorithm: CompressionAlgorithm = compress_algorithm_value.into();
     let mut decompressed = Vec::with_capacity(decompressed_size as usize);
-    decompress(compressed, &mut decompressed, compress_algorithm)?;
+    decompress(
+        compressed,
+        &mut decompressed,
+        compress_algorithm,
+        decompressed_size as usize,
+    )?;
     process_prefetch_data(artifact_name, &decompressed)
 }
 
