@@ -2,7 +2,8 @@ use forensic_rs::{err::ForensicResult, notifications::NotificationType};
 
 use crate::{
     common::{
-        array_at, bytes_at, u32_at_pos, utf16_at_offset, Metric, PrefetchFileInformation, Trace,
+        array_at, bytes_at, u32_at_pos, u64_at_pos, utf16_at_offset, Metric, NtfsFile,
+        PrefetchFileInformation, Trace,
     },
     trace::{traces_for_dependency_v17, traces_for_dependency_v30},
 };
@@ -39,10 +40,12 @@ fn metrics_array(
     for entry in metric_array.chunks_exact(entry_size) {
         let trace_index = u32_at_pos(entry, 0) as usize;
         let trace_size = u32_at_pos(entry, 4);
-        let (blocks_to_prefetch, fields) = if entry_size == METRIC_ENTRY_SIZE_V17 {
-            (trace_size, 8)
+        let (blocks_to_prefetch, fields, file_reference) = if entry_size == METRIC_ENTRY_SIZE_V17 {
+            (trace_size, 8, None)
         } else {
-            (u32_at_pos(entry, 8), 12)
+            let reference = u64_at_pos(entry, 24);
+            let file_reference = (reference != 0).then(|| NtfsFile::from_reference(reference));
+            (u32_at_pos(entry, 8), 12, file_reference)
         };
         let filename_offset = u32_at_pos(entry, fields) as usize;
         let filename_length = u32_at_pos(entry, fields + 4) as usize;
@@ -57,6 +60,7 @@ fn metrics_array(
             flags: flags.into(),
             traces: traces(file_buffer, info, trace_index, trace_size as usize)?,
             blocks_to_prefetch,
+            file_reference,
         };
         check_anomaly_in_metrics(&metric);
         metrics.push(metric);

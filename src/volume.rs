@@ -148,16 +148,11 @@ fn extract_file_references(
     })?;
     let mut files = Vec::with_capacity(file_reference_count);
     for reference in references.chunks_exact(8) {
-        let mft_entry_and_seq = u64_at_pos(reference, 0);
-        let mft_entry = mft_entry_and_seq & 0xffffffffffff;
-        if mft_entry == 0 {
+        let file = NtfsFile::from_reference(u64_at_pos(reference, 0));
+        if file.mft_entry == 0 {
             continue;
         }
-        let seq_number = (mft_entry_and_seq >> 48) as u16;
-        files.push(NtfsFile {
-            mft_entry,
-            seq_number,
-        })
+        files.push(file)
     }
     Ok(files)
 }

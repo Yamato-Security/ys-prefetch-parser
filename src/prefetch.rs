@@ -254,13 +254,14 @@ fn process_prefetch_data(artifact_name: &str, buffer: &[u8]) -> ForensicResult<P
     if b"SCCA" != signature {
         return Err(ForensicError::bad_format_str("Invalid prefetch signature"));
     }
-    //let file_size = u32::from_le_bytes(buffer[12..16].try_into().unwrap());
     let executable_name = utf16_until_nul(&buffer[16..76]);
     let raw_hash = u32_at_pos(buffer, 76);
     check_prefetch_info_correct(artifact_name, &executable_name, raw_hash);
 
     let mut prefetch_content = PrefetchFile {
         name: executable_name,
+        hash: raw_hash,
+        file_size: u32_at_pos(buffer, 12),
         version,
         ..Default::default()
     };

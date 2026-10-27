@@ -35,6 +35,10 @@ pub struct PrefetchFile {
     pub version: u32,
     /// Executable name
     pub name: String,
+    /// Prefetch hash of the executable's path (the hexadecimal part of the file name)
+    pub hash: u32,
+    /// Size of the uncompressed prefetch data, as recorded in its header
+    pub file_size: u32,
     /// List of DLLs/EXEs loaded by the executable
     pub metrics: Vec<Metric>,
     /// Last execution times (max 8)
@@ -70,6 +74,9 @@ pub struct Metric {
     pub blocks_to_prefetch: u32,
     /// Traces for this dependency
     pub traces: Vec<Trace>,
+    /// NTFS file reference of the dependency (format version 23 and later; `None` when the
+    /// entry holds no reference)
+    pub file_reference: Option<NtfsFile>,
 }
 #[derive(Debug, Clone, Default)]
 pub struct Trace {
@@ -229,10 +236,21 @@ pub struct VolumeInformation {
     pub serial_number: u32,
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct NtfsFile {
     pub mft_entry: u64,
     pub seq_number: u16,
+}
+
+impl NtfsFile {
+    /// Splits a 64-bit NTFS file reference into its 48-bit MFT entry and 16-bit sequence
+    /// number.
+    pub fn from_reference(reference: u64) -> Self {
+        Self {
+            mft_entry: reference & 0xffffffffffff,
+            seq_number: (reference >> 48) as u16,
+        }
+    }
 }
 
 /// Decodes the UTF-16LE string stored in the `size` bytes at `offset`, up to the first NUL.
