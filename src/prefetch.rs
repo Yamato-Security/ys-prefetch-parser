@@ -119,7 +119,39 @@ pub fn read_prefetch_file_compressed(
     }
     let mut buffer = Vec::with_capacity(4096);
     file.read_to_end(&mut buffer)?;
-    let header = bytes_at(&buffer, 0, 8, "compressed prefetch header")?;
+    process_compressed_data(artifact_name, &buffer)
+}
+
+/// Parses a prefetch file held in memory, compressed (Windows 8 and later) or not. The file
+/// name (or a path ending in it) is used to check the executable name and the hash.
+///
+/// ```rust
+/// use frnsc_prefetch::prelude::*;
+/// let data = std::fs::read("./artifacts/30/C/Windows/Prefetch/RUST_OUT.EXE-5D2C8541.pf").unwrap();
+/// let prefetch = read_prefetch_bytes("RUST_OUT.EXE-5D2C8541.pf", &data).unwrap();
+/// assert_eq!(prefetch.name, "RUST_OUT.EXE");
+/// ```
+pub fn read_prefetch_bytes(artifact_name: &str, data: &[u8]) -> ForensicResult<PrefetchFile> {
+    if data.len() as u64 > PREFETCH_SIZE_LIMIT {
+        notify_low!(
+            NotificationType::AntiForensicsDetected,
+            "Prefetch file {} size is abnormally large",
+            artifact_name
+        );
+        return Err(ForensicError::bad_format_string(format!(
+            "Prefetch file {} size is abnormally large",
+            artifact_name
+        )));
+    }
+    if data.starts_with(PREFETC_COMPRESS_SIGNATURE_U8) {
+        process_compressed_data(artifact_name, data)
+    } else {
+        process_prefetch_data(artifact_name, data)
+    }
+}
+
+fn process_compressed_data(artifact_name: &str, buffer: &[u8]) -> ForensicResult<PrefetchFile> {
+    let header = bytes_at(buffer, 0, 8, "compressed prefetch header")?;
     let compressed = &buffer[8..];
     let signature = u32_at_pos(header, 0);
     let decompressed_size = u32_at_pos(header, 4);
