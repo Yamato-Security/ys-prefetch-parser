@@ -29,6 +29,13 @@ pub const FLAG_BLOCK_FORCE_PREFETCH: u8 = 0x08;
 /// The block will not be prefetched, should be pulled from disk.
 pub const FLAG_BLOCK_DONT_PREFETCH: u8 = 0x01;
 
+/// The header has room for 30 UTF-16 characters including the terminating NUL.
+const MAX_EXECUTABLE_NAME_CHARACTERS: usize = 29;
+
+fn file_name(path: &str) -> &str {
+    path.rsplit('\\').next().unwrap_or(path)
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct PrefetchFile {
     /// Prefetch file version
@@ -343,13 +350,31 @@ impl PrefetchFile {
         PrefetchFile::default()
     }
 
+    /// Path of the executable: the loaded file whose name is the executable name, or the
+    /// executable name when no loaded file has it.
+    ///
+    /// Windows stores at most 29 characters of the executable name. A truncated name is
+    /// resolved when exactly one loaded file name starts with it.
     pub fn executable_path(&self) -> &str {
-        for loaded in &self.metrics {
-            if loaded.file.ends_with(&self.name) {
+        let name = self.name.as_str();
+        if let Some(loaded) = self
+            .metrics
+            .iter()
+            .find(|m| file_name(&m.file).eq_ignore_ascii_case(name))
+        {
+            return &loaded.file;
+        }
+        if name.encode_utf16().count() >= MAX_EXECUTABLE_NAME_CHARACTERS {
+            let upper = name.to_uppercase();
+            let mut candidates = self
+                .metrics
+                .iter()
+                .filter(|m| file_name(&m.file).to_uppercase().starts_with(&upper));
+            if let (Some(loaded), None) = (candidates.next(), candidates.next()) {
                 return &loaded.file;
             }
         }
-        &self.name
+        name
     }
     /// Gets for which user was the program executed. Its not precise.
     pub fn user(&self) -> Option<&str> {
@@ -509,4 +534,51 @@ impl<'a> IntoTimeline<'a> for PrefetchFile {
         = PrefetchTimelineIterator<'a>
     where
         Self: 'a;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Metric, PrefetchFile};
+
+    fn prefetch(name: &str, files: &[&str]) -> PrefetchFile {
+        PrefetchFile {
+            name: name.into(),
+            metrics: files
+                .iter()
+                .map(|f| Metric {
+                    file: f.to_string(),
+                    ..Default::default()
+                })
+                .collect(),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn executable_path_matches_the_whole_file_name() {
+        let pf = prefetch(
+            "CMD.EXE",
+            &[
+                r"\VOLUME{1}\TOOLS\NOTCMD.EXE",
+                r"\VOLUME{1}\WINDOWS\SYSTEM32\CMD.EXE",
+            ],
+        );
+        assert_eq!(pf.executable_path(), r"\VOLUME{1}\WINDOWS\SYSTEM32\CMD.EXE");
+        assert_eq!(
+            prefetch("CMD.EXE", &[r"\VOLUME{1}\X.DLL"]).executable_path(),
+            "CMD.EXE"
+        );
+    }
+
+    #[test]
+    fn executable_path_resolves_unambiguous_truncated_names() {
+        let name = "AM_DELTA_PATCH_1.377.757.0.EX";
+        let path = r"\VOLUME{1}\INSTALL\AM_DELTA_PATCH_1.377.757.0.EXE";
+        assert_eq!(
+            prefetch(name, &[r"\VOLUME{1}\X.DLL", path]).executable_path(),
+            path
+        );
+        let other = r"\VOLUME{1}\INSTALL\AM_DELTA_PATCH_1.377.757.0.EXE.MUI";
+        assert_eq!(prefetch(name, &[path, other]).executable_path(), name);
+    }
 }
