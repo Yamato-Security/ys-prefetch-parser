@@ -402,35 +402,67 @@ fn file_information_30(buffer: &[u8]) -> ForensicResult<PrefetchFileInformation>
 }
 
 fn check_prefetch_info_correct(artifact_name: &str, executable_name: &str, hash: u32) {
-    if artifact_name.ends_with(".pf") {
-        match extract_hash_ands_signature(artifact_name) {
-            Ok((expected_name, expected_hash)) => {
-                if expected_name != executable_name {
-                    forensic_rs::info!("Invalid prefetch executable name expected={expected_name} found={executable_name}");
-                    forensic_rs::notify_info!(NotificationType::AntiForensicsDetected, "Invalid prefetch executable name expected={expected_name} found={executable_name}");
-                }
-                if hash != expected_hash {
-                    forensic_rs::info!(
-                        "Invalid prefetch hash expected={expected_hash} found={hash}"
-                    );
-                    forensic_rs::notify_info!(
-                        NotificationType::AntiForensicsDetected,
-                        "Invalid prefetch hash expected={expected_hash} found={hash}"
-                    );
-                }
+    match extract_hash_ands_signature(artifact_name) {
+        Ok((expected_name, expected_hash)) => {
+            if !expected_name.eq_ignore_ascii_case(executable_name) {
+                forensic_rs::info!("Invalid prefetch executable name expected={expected_name} found={executable_name}");
+                forensic_rs::notify_info!(NotificationType::AntiForensicsDetected, "Invalid prefetch executable name expected={expected_name} found={executable_name}");
             }
-            Err(e) => {
-                forensic_rs::info!("{}", e);
+            if hash != expected_hash {
+                forensic_rs::info!(
+                    "Invalid prefetch hash expected={expected_hash:08X} found={hash:08X}"
+                );
+                forensic_rs::notify_info!(
+                    NotificationType::AntiForensicsDetected,
+                    "Invalid prefetch hash expected={expected_hash:08X} found={hash:08X}"
+                );
             }
+        }
+        Err(e) => {
+            forensic_rs::info!("{}", e);
         }
     }
 }
 
-fn extract_hash_ands_signature(mut name: &str) -> ForensicResult<(&str, u32)> {
-    if name.ends_with(".pf") {
-        name = &name[0..name.len() - 3]
+/// Splits a prefetch file name such as `CMD.EXE-087B4001.pf` (or a path ending in one) into
+/// the executable name and the hexadecimal prefetch hash.
+fn extract_hash_ands_signature(name: &str) -> ForensicResult<(&str, u32)> {
+    let invalid = || ForensicError::bad_format_str("Invalid prefetch artifact name");
+    let name = name.rsplit(['/', '\\']).next().unwrap_or(name);
+    let stem = name
+        .len()
+        .checked_sub(3)
+        .filter(|&end| {
+            name.get(end..)
+                .is_some_and(|ext| ext.eq_ignore_ascii_case(".pf"))
+        })
+        .map(|end| &name[..end])
+        .ok_or_else(invalid)?;
+    let (executable, hash) = stem.rsplit_once('-').ok_or_else(invalid)?;
+    if hash.len() != 8 {
+        return Err(invalid());
     }
-    name.split_once('-')
-        .map(|v| (v.0, v.1.parse::<u32>().unwrap_or_default()))
-        .ok_or_else(|| ForensicError::bad_format_str("Invalid prefetch artifact name"))
+    let hash = u32::from_str_radix(hash, 16).map_err(|_| invalid())?;
+    Ok((executable, hash))
+}
+
+#[cfg(test)]
+mod name_tests {
+    use super::extract_hash_ands_signature;
+
+    #[test]
+    fn prefetch_file_names_are_split_at_the_last_dash() {
+        assert_eq!(
+            extract_hash_ands_signature("CMD.EXE-087B4001.pf").unwrap(),
+            ("CMD.EXE", 0x087B4001)
+        );
+        assert_eq!(
+            extract_hash_ands_signature(r"C:\Windows\Prefetch\MICROSOFT-EDGE.EXE-1C2D3E4F.PF")
+                .unwrap(),
+            ("MICROSOFT-EDGE.EXE", 0x1C2D3E4F)
+        );
+        assert!(extract_hash_ands_signature("CMD.EXE.pf").is_err());
+        assert!(extract_hash_ands_signature("CMD.EXE-XYZ.pf").is_err());
+        assert!(extract_hash_ands_signature("CMD.EXE-087B4001.txt").is_err());
+    }
 }
