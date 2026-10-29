@@ -2,8 +2,8 @@ use forensic_rs::{err::ForensicResult, notifications::NotificationType};
 
 use crate::{
     common::{
-        array_at, bytes_at, u32_at_pos, u64_at_pos, utf16_at_offset, Metric, NtfsFile,
-        PrefetchFileInformation, Trace,
+        Metric, NtfsFile, PrefetchFileInformation, Trace, array_at, bytes_at, u32_at_pos,
+        u64_at_pos, utf16_at_offset,
     },
     trace::{traces_for_dependency_v17, traces_for_dependency_v30},
 };

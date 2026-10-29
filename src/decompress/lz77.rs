@@ -117,19 +117,23 @@ fn basic_lz77_decompression_2() {
 fn damaged_lz77_input_is_an_error() {
     // A match before any output and a match length that runs past the input.
     let mut decoded_value = Vec::new();
-    assert!(decompress(
-        &[0x00, 0x00, 0x00, 0x80, 0x00, 0x00],
-        &mut decoded_value,
-        64
-    )
-    .is_err());
+    assert!(
+        decompress(
+            &[0x00, 0x00, 0x00, 0x80, 0x00, 0x00],
+            &mut decoded_value,
+            64
+        )
+        .is_err()
+    );
     let mut decoded_value = Vec::new();
-    assert!(decompress(
-        &[0x00, 0x00, 0x00, 0x40, 0x61, 0x07, 0x00],
-        &mut decoded_value,
-        64
-    )
-    .is_err());
+    assert!(
+        decompress(
+            &[0x00, 0x00, 0x00, 0x40, 0x61, 0x07, 0x00],
+            &mut decoded_value,
+            64
+        )
+        .is_err()
+    );
 }
 
 #[test]

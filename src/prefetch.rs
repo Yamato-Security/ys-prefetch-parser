@@ -11,9 +11,9 @@ use forensic_rs::{
 
 use crate::{
     common::{
-        bytes_at, u32_at_pos, u64_at_pos, utf16_until_nul, PrefetchFile, PrefetchFileInformation,
+        PrefetchFile, PrefetchFileInformation, bytes_at, u32_at_pos, u64_at_pos, utf16_until_nul,
     },
-    decompress::{decompress, CompressionAlgorithm},
+    decompress::{CompressionAlgorithm, decompress},
     metrics::*,
     volume::*,
 };
@@ -432,8 +432,13 @@ fn check_prefetch_info_correct(artifact_name: &str, executable_name: &str, hash:
     match extract_hash_ands_signature(artifact_name) {
         Ok((expected_name, expected_hash)) => {
             if !expected_name.eq_ignore_ascii_case(executable_name) {
-                forensic_rs::info!("Invalid prefetch executable name expected={expected_name} found={executable_name}");
-                forensic_rs::notify_info!(NotificationType::AntiForensicsDetected, "Invalid prefetch executable name expected={expected_name} found={executable_name}");
+                forensic_rs::info!(
+                    "Invalid prefetch executable name expected={expected_name} found={executable_name}"
+                );
+                forensic_rs::notify_info!(
+                    NotificationType::AntiForensicsDetected,
+                    "Invalid prefetch executable name expected={expected_name} found={executable_name}"
+                );
             }
             if hash != expected_hash {
                 forensic_rs::info!(

@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.0] - Unreleased
+
+### Changed
+- The crate is named after its repository, `ys-prefetch-parser` (its library is still
+  `frnsc_prefetch`: depend on it as `frnsc-prefetch = { package = "ys-prefetch-parser", … }`),
+  version 1.0.0, by Samuel Garcés Marín and Zach Mathis (@yamatosecurity), on Rust's 2024 edition,
+  and requires Rust 1.99. (@YamatoSecurity)
+
 ## [0.14.0] - 2026-10-27 (ys-prefetch-parser)
 
 First version of Yamato Security's fork, based on upstream `main` 5413f19 (0.13.4).

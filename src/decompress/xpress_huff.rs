@@ -113,7 +113,9 @@ fn decompress_chunk(
             let mut length = (length as usize).saturating_add(3).min(output_size - i);
             loop {
                 if (i as i32 + offset) < 0 {
-                    return Err(ForensicError::bad_format_str("decompress_expres_huff(): Invalid offset position when decompressing a chunk"));
+                    return Err(ForensicError::bad_format_str(
+                        "decompress_expres_huff(): Invalid offset position when decompressing a chunk",
+                    ));
                 }
                 let position = (i as i32 + offset) as usize;
                 out_buf.push(out_buf[position]);
@@ -224,7 +226,7 @@ fn prefix_code_tree_add_leaf(
         None => {
             return Err(ForensicError::bad_format_str(
                 "decompress_expres_huff(): Invalid PreficCode",
-            ))
+            ));
         }
     };
     // A table of code lengths that is not a valid prefix code can need more nodes than a
@@ -336,7 +338,7 @@ fn prefix_code_tree_decode_symbol(
                 return Err(ForensicError::Other(format!(
                     "No child in decode symbol: {}",
                     bit
-                )))
+                )));
             }
         };
         drop(nt);

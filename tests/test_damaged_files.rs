@@ -1,12 +1,12 @@
 //! Damaged and crafted prefetch files must produce errors: no panics, and no allocation
 //! larger than the size limit however large the counts and sizes in the file claim to be.
-use frnsc_prefetch::decompress::{decompress, CompressionAlgorithm};
+use frnsc_prefetch::decompress::{CompressionAlgorithm, decompress};
 use frnsc_prefetch::prelude::*;
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::collections::BTreeMap;
-use std::panic::{catch_unwind, AssertUnwindSafe};
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 /// Records the largest allocation request.
 struct Tracking;

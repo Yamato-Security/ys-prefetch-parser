@@ -33,7 +33,7 @@ The fork fixes what the comparison found and adds what the others had (file refe
 Use it from Cargo by commit:
 
 ```toml
-frnsc-prefetch = { git = "https://github.com/Yamato-Security/ys-prefetch-parser", rev = "<commit>" }
+frnsc-prefetch = { package = "ys-prefetch-parser", git = "https://github.com/Yamato-Security/ys-prefetch-parser", rev = "<commit>" }
 ```
 
 ```rust
@@ -43,8 +43,9 @@ let prefetch = read_prefetch_bytes("CMD.EXE-6D6290C5.pf", &data).unwrap();
 println!("{} ran {} times", prefetch.executable_path(), prefetch.run_count);
 ```
 
-The crate keeps the name `frnsc-prefetch` and is not published to crates.io; its versions start at
-0.14.0 and are the fork's own. See [CHANGELOG.md](CHANGELOG.md).
+The crate is named after the repository, `ys-prefetch-parser`, and its library keeps upstream's
+name, `frnsc_prefetch`; it is not published to crates.io, and its versions are the fork's own
+(1.0.0 since the rename). It needs Rust 1.99 (edition 2024). See [CHANGELOG.md](CHANGELOG.md).
 
 ---
 
