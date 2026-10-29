@@ -1,18 +1,22 @@
 [package]
-name = "frnsc-prefetch"
-version = "0.14.0"
+name = "ys-prefetch-parser"
+version = "1.0.0"
 # Yamato Security fork of the upstream `frnsc-prefetch` crate: not published under the upstream name.
 publish = false
-authors = ["Samuel Garcés Marín <samuel.garces@protonmail.com>"]
+authors = ["Samuel Garcés Marín", "Zach Mathis (@yamatosecurity)"]
 keywords = ["forensic", "windows", "prefetch", "registry", "cybersecurity"]
 categories = ["parsing"]
 description = "Pure rust windows prefetch parser implementation"
 license = "MIT"
-edition = "2021"
-rust-version = "1.88"
+edition = "2024"
+rust-version = "1.99"
 homepage = "https://github.com/Yamato-Security/ys-prefetch-parser"
 repository = "https://github.com/Yamato-Security/ys-prefetch-parser"
 exclude = ["/artifacts", "/img"]
+
+# The library keeps upstream's name, so code using it reads `use frnsc_prefetch::…`.
+[lib]
+name = "frnsc_prefetch"
 
 [dependencies]
 crc32fast = "1.3.2"

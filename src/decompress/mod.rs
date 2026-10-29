@@ -41,7 +41,7 @@ pub fn decompress(
         | CompressionAlgorithm::CompressionFormatLznt1 => {
             return Err(forensic_rs::err::ForensicError::Other(
                 "LZNT1 compression is not supported".into(),
-            ))
+            ));
         }
         // COMPRESSION_FORMAT_XPRESS is plain LZ77.
         CompressionAlgorithm::CompressionFormatXpress => {

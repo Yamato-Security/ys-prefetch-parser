@@ -1,6 +1,6 @@
 use forensic_rs::err::{ForensicError, ForensicResult};
 
-use crate::common::{array_at, u32_at_pos, PrefetchFileInformation, Trace};
+use crate::common::{PrefetchFileInformation, Trace, array_at, u32_at_pos};
 
 /// Size of a trace chain entry in format versions 17, 23 and 26.
 const TRACE_ENTRY_SIZE_V17: usize = 12;

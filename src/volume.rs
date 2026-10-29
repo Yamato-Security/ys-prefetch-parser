@@ -1,8 +1,8 @@
 use forensic_rs::err::{ForensicError, ForensicResult};
 
 use crate::common::{
-    array_at, bytes_at, u16_at_pos, u32_at_pos, u64_at_pos, utf16_at_offset, NtfsFile,
-    PrefetchFileInformation, VolumeInformation,
+    NtfsFile, PrefetchFileInformation, VolumeInformation, array_at, bytes_at, u16_at_pos,
+    u32_at_pos, u64_at_pos, utf16_at_offset,
 };
 
 /// Size of a volume information entry in format version 17.
