@@ -8,6 +8,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [1.0.0] - Unreleased
 
 ### Changed
+- License: ys-prefetch-parser is now copyright Shirofune Security Co., Ltd. and released under the
+  Reciprocal Public License 1.5 (RPL-1.5) instead of MIT. Upstream's code stays under MIT
+  (`LICENSE-MIT`). Every Rust file carries the copyright and the RPL License Notice; those changed
+  from upstream also name it, with its copyright and license. (@YamatoSecurity)
 - The crate is named after its repository, `ys-prefetch-parser` (its library is still
   `frnsc_prefetch`: depend on it as `frnsc-prefetch = { package = "ys-prefetch-parser", … }`),
   version 1.0.0, by Samuel Garcés Marín and Zach Mathis (@yamatosecurity), on Rust's 2024 edition,
