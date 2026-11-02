@@ -2,8 +2,9 @@
 
 Yamato Security's maintained fork of Samuel Garcés Marín's
 [frnsc-prefetch](https://github.com/ForensicRS/frnsc-prefetch) crate, the Windows Prefetch (`.pf`)
-parser used by [Juntei](https://github.com/Yamato-Security/juntei). The complete upstream history and
-the MIT license are retained; everything below this section is upstream's README.
+parser used by [Juntei](https://github.com/Yamato-Security/juntei). The complete upstream history is
+retained, and upstream's code stays under its MIT license (see [License](#license)); everything
+below this section is upstream's README.
 
 frnsc-prefetch was chosen after comparing the Rust prefetch parsers with libscca (libyal's reference
 implementation) on 700 public samples (the artemis, frnsc-prefetch and prefetch-forensic test data):
@@ -46,6 +47,14 @@ println!("{} ran {} times", prefetch.executable_path(), prefetch.run_count);
 The crate is named after the repository, `ys-prefetch-parser`, and its library keeps upstream's
 name, `frnsc_prefetch`; it is not published to crates.io, and its versions are the fork's own
 (1.0.0 since the rename). It needs Rust 1.99 (edition 2024). See [CHANGELOG.md](CHANGELOG.md).
+
+## License
+
+ys-prefetch-parser is copyright Shirofune Security Co., Ltd. and released under the [Reciprocal
+Public License 1.5](LICENSE) (RPL-1.5); its source code was published under MIT before version
+1.0.0. It is changed from [frnsc-prefetch](https://github.com/ForensicRS/frnsc-prefetch) (copyright
+Samuel Garcés Marín), whose code stays under the MIT License (`LICENSE-MIT`): each Rust file changed
+from it says so in its header.
 
 ---
 
