@@ -18,6 +18,7 @@
 
 pub mod common;
 pub mod decompress;
+pub mod executable;
 pub mod metrics;
 pub mod prefetch;
 pub mod trace;

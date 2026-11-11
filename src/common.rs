@@ -47,13 +47,6 @@ pub const FLAG_BLOCK_FORCE_PREFETCH: u8 = 0x08;
 /// The block will not be prefetched, should be pulled from disk.
 pub const FLAG_BLOCK_DONT_PREFETCH: u8 = 0x01;
 
-/// The header has room for 30 UTF-16 characters including the terminating NUL.
-const MAX_EXECUTABLE_NAME_CHARACTERS: usize = 29;
-
-fn file_name(path: &str) -> &str {
-    path.rsplit('\\').next().unwrap_or(path)
-}
-
 #[derive(Debug, Clone, Default)]
 pub struct PrefetchFile {
     /// Prefetch file version
@@ -370,31 +363,15 @@ impl PrefetchFile {
         PrefetchFile::default()
     }
 
-    /// Path of the executable: the loaded file whose name is the executable name, or the
-    /// executable name when no loaded file has it.
-    ///
-    /// Windows stores at most 29 characters of the executable name. A truncated name is
-    /// resolved when exactly one loaded file name starts with it.
+    /// Path selected by the SCCA hash, otherwise a unique matching loaded filename.
+    /// Ambiguous unvalidated paths return the header's executable name.
     pub fn executable_path(&self) -> &str {
-        let name = self.name.as_str();
-        if let Some(loaded) = self
-            .metrics
-            .iter()
-            .find(|m| file_name(&m.file).eq_ignore_ascii_case(name))
-        {
-            return &loaded.file;
-        }
-        if name.encode_utf16().count() >= MAX_EXECUTABLE_NAME_CHARACTERS {
-            let upper = name.to_uppercase();
-            let mut candidates = self
-                .metrics
-                .iter()
-                .filter(|m| file_name(&m.file).to_uppercase().starts_with(&upper));
-            if let (Some(loaded), None) = (candidates.next(), candidates.next()) {
-                return &loaded.file;
-            }
-        }
-        name
+        self.executable_path_info().path
+    }
+
+    /// The selected path and whether its hash was validated or its candidates were ambiguous.
+    pub fn executable_path_info(&self) -> crate::executable::ExecutablePath<'_> {
+        crate::executable::resolve(self)
     }
     /// Gets for which user was the program executed. Its not precise.
     pub fn user(&self) -> Option<&str> {

@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [1.0.0] - Unreleased
 
+### Fixed
+- Resolve same-named executable candidates with the SCCA path hash instead of selecting the
+  first loaded file. Leave unresolved candidates ambiguous and expose `executable_path_info()`
+  with hash-validation and ambiguity flags. Bound candidate counts and path lengths, and retain
+  the executable-name fallback when a full path cannot be established. (@YamatoSecurity)
+
 ### Changed
 - License: ys-prefetch-parser is now copyright Shirofune Security Co., Ltd. and released under the
   Reciprocal Public License 1.5 (RPL-1.5) instead of MIT. Upstream's code stays under MIT
