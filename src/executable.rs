@@ -14,8 +14,8 @@
 //! Resolve the executable among loaded paths using the SCCA path hash. A loaded module with
 //! the same basename is not necessarily the process image (for example, x86 versus x64).
 //!
-//! XP and Vista+ hash algorithms are cross-checked against Eric Zimmerman's PrefetchHash
-//! test vectors: https://github.com/EricZimmerman/Prefetch/blob/master/Prefetch/PrefetchHash.cs
+//! The XP and Vista+ hash functions are those libscca documents ("Windows Prefetch File (PF)
+//! format"); the test vectors are the hashes in the names of public Prefetch files.
 
 use crate::common::PrefetchFile;
 
