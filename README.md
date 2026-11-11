@@ -27,7 +27,7 @@ The fork fixes what the comparison found and adds what the others had (file refe
 | `read_prefetch_bytes(name, &[u8])` parses files held in memory | fork |
 | Prefetch hash, header file size and per-file NTFS file references | fork (fields from libscca / libprefetch / artemis) |
 | The file-name hash check parses hex (it raised a notification for every file) | fork |
-| `executable_path()` matches whole file names and resolves names truncated to 29 characters | fork |
+| `executable_path()` matches whole file names and resolves names truncated to 29 characters; the SCCA hash distinguishes same-named candidates, while `executable_path_info()` exposes validation and ambiguity | fork |
 | No printing to stdout from the library | fork |
 | Tests: libscca parity for 16 samples, damaged files with an allocation limit | fork (samples from artemis, MIT) |
 
