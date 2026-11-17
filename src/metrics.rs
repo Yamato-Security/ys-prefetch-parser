@@ -143,8 +143,5 @@ fn check_anomaly_in_metrics(metric: &Metric) {
 }
 
 fn is_resource(file: &str) -> bool {
-    if file.ends_with(".NLS") || file.ends_with(".RES") {
-        return true;
-    }
-    false
+    file.ends_with(".NLS") || file.ends_with(".RES")
 }

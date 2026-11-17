@@ -22,7 +22,7 @@ use std::{cell::RefCell, cmp::Ordering, rc::Rc};
 /// Decompresses LZ77+Huffman data ([MS-XCA] 2.1) into `out_buf`, producing at most
 /// `output_size` bytes.
 ///
-/// Inspired by https://raw.githubusercontent.com/Velocidex/go-prefetch/master/lzxpress.go
+/// Inspired by <https://raw.githubusercontent.com/Velocidex/go-prefetch/master/lzxpress.go>
 pub fn decompress(in_buf: &[u8], out_buf: &mut Vec<u8>, output_size: usize) -> ForensicResult<()> {
     let mut in_index = 0;
     let mut out_index = 0;
