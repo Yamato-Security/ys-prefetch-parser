@@ -48,6 +48,16 @@ The crate is named after the repository, `ys-prefetch-parser`, and its library k
 name, `frnsc_prefetch`; it is not published to crates.io, and its versions are the fork's own
 (1.0.0 since the rename). It needs Rust 1.99 (edition 2024). See [CHANGELOG.md](CHANGELOG.md).
 
+## Contributing
+
+Contributions require this repository's [Contributor License Agreement](CLA.md).
+It permits **Zachary Mathis** and **Shirofune Security Co., Ltd.** to use and
+sell covered contributions in proprietary editions, while accepted contributions
+also remain available in the free, open-source community edition.
+Read [how to sign](CONTRIBUTING.md#how-to-sign). The `cla/required` check uses
+the [maintainer-verified signer registry](.github/cla/signatures.json); first-time
+signatures require verification and registration.
+
 ## License
 
 ys-prefetch-parser is copyright Shirofune Security Co., Ltd. and released under the [Reciprocal

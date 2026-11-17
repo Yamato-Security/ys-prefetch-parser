@@ -3,3 +3,6 @@ Cargo.lock
 
 # Local environment files may contain secrets.
 .env
+
+# Python CLA checker test bytecode.
+__pycache__/
